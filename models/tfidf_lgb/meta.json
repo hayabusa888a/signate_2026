@@ -1,0 +1,28 @@
+{
+  "run_name": "tfidf_lgb",
+  "created_at": "2026-08-21T20:04:45",
+  "cv": "StratifiedKFold(n_splits=5, shuffle=True, random_state=42)",
+  "oof_f1": 0.7168,
+  "best_threshold": 0.26,
+  "n_splits": 5,
+  "tfidf_text_cols": [
+    "企業概要",
+    "今後のDX展望",
+    "組織図"
+  ],
+  "n_svd": 40,
+  "lgb_params": {
+    "objective": "binary",
+    "metric": "binary_logloss",
+    "learning_rate": 0.05,
+    "num_leaves": 15,
+    "min_child_samples": 10,
+    "feature_fraction": 0.8,
+    "bagging_fraction": 0.8,
+    "bagging_freq": 1,
+    "scale_pos_weight": 3.1452513966480447,
+    "verbosity": -1,
+    "seed": 42
+  },
+  "submission": "submission/tfidf_submission.csv"
+}

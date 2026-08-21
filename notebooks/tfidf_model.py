@@ -1,3 +1,8 @@
+import json
+import pickle
+from datetime import datetime
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import lightgbm as lgb
@@ -20,6 +25,14 @@ from feature_eng import (
 TFIDF_TEXT_COLS = ["企業概要", "今後のDX展望", "組織図"]
 N_SVD = 40  # SVD components per text column
 
+RUN_NAME = "tfidf_lgb"
+
+# ---- artifact directories ----
+FEATURES_DIR = Path("../features")
+MODELS_DIR = Path("../models") / RUN_NAME
+FEATURES_DIR.mkdir(parents=True, exist_ok=True)
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
+
 train = pd.read_csv("../data/train.csv")
 test = pd.read_csv("../data/test.csv")
 
@@ -30,6 +43,10 @@ test_ids = test[id_col].values
 X = build_features(train)
 X_test = build_features(test)
 X, X_test = align_categories(X, X_test)
+
+# 計算済みの構造化特徴量を保存（再利用可）
+X.to_pickle(FEATURES_DIR / "structured_train.pkl")
+X_test.to_pickle(FEATURES_DIR / "structured_test.pkl")
 
 # ---- pre-tokenize text once with janome (word surface, whitespace-joined) ----
 tokenizer = Tokenizer()
@@ -87,6 +104,7 @@ def build_tfidf_svd(tr_texts, va_texts, test_texts, col, seed):
         pd.DataFrame(tr_svd, columns=cols),
         pd.DataFrame(va_svd, columns=cols),
         pd.DataFrame(test_svd, columns=cols),
+        {"vectorizer": vec, "svd": svd},
     )
 
 
@@ -97,14 +115,16 @@ for fold, (tr_idx, va_idx) in enumerate(skf.split(X, y)):
     X_te = X_test.reset_index(drop=True).copy()
 
     tr_parts, va_parts, te_parts = [X_tr], [X_va], [X_te]
+    fold_vectorizers = {}
     for c in TFIDF_TEXT_COLS:
         tr_texts = train_tok[c].iloc[tr_idx].tolist()
         va_texts = train_tok[c].iloc[va_idx].tolist()
         test_texts = test_tok[c].tolist()
-        tr_s, va_s, te_s = build_tfidf_svd(tr_texts, va_texts, test_texts, c, RANDOM_STATE + fold)
+        tr_s, va_s, te_s, vecobj = build_tfidf_svd(tr_texts, va_texts, test_texts, c, RANDOM_STATE + fold)
         tr_parts.append(tr_s)
         va_parts.append(va_s)
         te_parts.append(te_s)
+        fold_vectorizers[c] = vecobj
 
     X_tr_f = pd.concat(tr_parts, axis=1)
     X_va_f = pd.concat(va_parts, axis=1)
@@ -124,6 +144,11 @@ for fold, (tr_idx, va_idx) in enumerate(skf.split(X, y)):
     oof_pred[va_idx] = model.predict(X_va_f, num_iteration=model.best_iteration)
     test_pred += model.predict(X_te_f, num_iteration=model.best_iteration) / skf.n_splits
 
+    # --- fold毎のモデルとベクトライザを保存 ---
+    model.save_model(str(MODELS_DIR / f"lgb_fold{fold}.txt"), num_iteration=model.best_iteration)
+    with open(MODELS_DIR / f"vectorizers_fold{fold}.pkl", "wb") as f:
+        pickle.dump(fold_vectorizers, f)
+
     print(f"fold {fold}: best_iter={model.best_iteration}, logloss={model.best_score['valid_0']['binary_logloss']:.4f}")
 
 best_th, best_f1 = 0.5, -1
@@ -140,3 +165,28 @@ submission = pd.DataFrame({0: test_ids, 1: final_pred})
 submission.to_csv("../submission/tfidf_submission.csv", index=False, header=False)
 print("saved submission/tfidf_submission.csv")
 print(submission[1].value_counts())
+
+# --- OOF/test予測とメタ情報を保存 ---
+np.save(MODELS_DIR / "oof_pred.npy", oof_pred)
+np.save(MODELS_DIR / "test_pred.npy", test_pred)
+pd.DataFrame({"企業ID": train[id_col], "oof_pred": oof_pred, "y": y}).to_csv(
+    MODELS_DIR / "oof_pred.csv", index=False
+)
+
+meta = {
+    "run_name": RUN_NAME,
+    "created_at": datetime.now().isoformat(timespec="seconds"),
+    "cv": "StratifiedKFold(n_splits=5, shuffle=True, random_state=42)",
+    "oof_f1": round(float(best_f1), 4),
+    "best_threshold": round(float(best_th), 2),
+    "n_splits": int(skf.n_splits),
+    "tfidf_text_cols": TFIDF_TEXT_COLS,
+    "n_svd": N_SVD,
+    "lgb_params": params,
+    "submission": "submission/tfidf_submission.csv",
+}
+with open(MODELS_DIR / "meta.json", "w", encoding="utf-8") as f:
+    json.dump(meta, f, ensure_ascii=False, indent=2)
+
+print(f"\nartifacts saved to: {MODELS_DIR}")
+print(f"features saved to:  {FEATURES_DIR}")
