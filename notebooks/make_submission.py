@@ -154,10 +154,32 @@ Xsvd_f, Xsvd_te, Xraw_f, Xraw_te = make_blocks(
 test_sc = fit_members(Xsvd_f, Xsvd_te, Xraw_f, Xraw_te, y, lgb_rounds)
 
 test_ens = np.mean([to_rank(test_sc[m]) for m in MEMBERS], axis=0)
-final_pred = (test_ens >= best_th).astype(int)
 
-sub = pd.DataFrame({0: test_ids, 1: final_pred})
-sub.to_csv("../submission/ensemble_submission.csv", index=False, header=False)
-print(f"\nsaved submission/ensemble_submission.csv")
-print("予測内訳:", pd.Series(final_pred).value_counts().to_dict())
-print(f"購入予測率: {final_pred.mean():.3f}  (train実測: {y.mean():.3f})")
+# 連続スコアを保存（後で任意の閾値を試せるように）
+np.save("../features/test_ens_score.npy", test_ens)
+pd.DataFrame({"企業ID": test_ids, "score": test_ens}).to_csv(
+    "../features/test_ens_score.csv", index=False)
+
+# 本命: CV最適閾値
+final_pred = (test_ens >= best_th).astype(int)
+pd.DataFrame({0: test_ids, 1: final_pred}).to_csv(
+    "../submission/ensemble_submission.csv", index=False, header=False)
+print(f"\nsaved ensemble_submission.csv 予測率={final_pred.mean():.3f} ({final_pred.sum()}件)")
+
+# ---- 陽性率を振ったバリエーション（LBで最適陽性率を探る） ----
+# 現行25%を挟んで上下に振る
+variants = {
+    "ensemble_rate21": 0.21,
+    "ensemble_rate30": 0.30,
+    "ensemble_rate35": 0.35,
+}
+print("\n=== 閾値バリエーション（LB probe用） ===")
+for tag, rate in variants.items():
+    th = np.quantile(test_ens, 1 - rate)   # 上位rate割を陽性
+    pred = (test_ens >= th).astype(int)
+    pd.DataFrame({0: test_ids, 1: pred}).to_csv(
+        f"../submission/{tag}.csv", index=False, header=False)
+    # 参考: このrateならOOFではF1いくつか
+    oof_th = np.quantile(oof_ens, 1 - rate)
+    oof_f1_at = f1_score(y, (oof_ens >= oof_th).astype(int))
+    print(f"  {tag}: 予測率{pred.mean():.3f} ({pred.sum()}件)  [参考OOF F1@同率={oof_f1_at:.4f}]")
