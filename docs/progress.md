@@ -70,19 +70,33 @@
 - ソフトウェア関連の固定資産投資が購入意思の強いシグナル
 - 自由記述（DX展望）のキーワードカウントも寄与しており、テキストのさらなる活用余地あり
 
+### 3.3 TF-IDF テキスト特徴量 (`notebooks/tfidf_model.py`)
+- 3.2 の構造化特徴量に、自由記述テキストの TF-IDF ベクトルを追加
+- 対象テキスト: 企業概要 / 今後のDX展望 / 組織図
+- 形態素解析: **janome**（wakati 分かち書き）で単語分割
+- ベクトル化: `TfidfVectorizer`（1〜2gram, min_df=3, max_df=0.9）→ `TruncatedSVD` で各テキスト40次元に圧縮（LSA）
+- **リーク防止**: TF-IDF + SVD の学習は各 fold の学習データのみで実施し、valid / test はそれで transform（fold内fit）
+- SVD の 40次元 × 3テキスト = 最大120次元を数値特徴として LightGBM に投入
+
+**結果: OOF F1 = 0.7168（閾値 0.26）** … feature_eng 比 **+0.0533**、ベースライン比 **+0.0789**
+提出: `submission/tfidf_submission.csv`（購入予測 254件）
+logloss も 0.33→0.30 前後まで低下しており、テキスト情報が明確に効いている。
+
 ## 4. スコア推移
 
 | 手法 | OOF F1 | 閾値 | 提出ファイル |
 |---|---|---|---|
 | ベースライン | 0.6379 | 0.28 | `submission/baseline_submission.csv` |
-| 特徴量エンジニアリング | **0.6635** | 0.27 | `submission/feature_eng_submission.csv` |
+| 特徴量エンジニアリング | 0.6635 | 0.27 | `submission/feature_eng_submission.csv` |
+| + TF-IDF（janome+SVD） | **0.7168** | 0.26 | `submission/tfidf_submission.csv` |
 
 ## 5. 今後の改善候補
-- テキストの TF-IDF / 埋め込み（現状はキーワードカウント・文字数のみ）
+- テキスト埋め込み（日本語 BERT / 文ベクトル）で TF-IDF を超えるか検証
 - Optuna によるハイパーパラメータチューニング
 - 追加の交互作用・比率特徴量、業界別集約特徴量（target encoding 等）
 - 複数モデル（CatBoost 等）のアンサンブル
 - 閾値決定の安定化（fold内で閾値を決めるネスト検証で楽観バイアスを抑制）
+- SVD 次元数・n-gram 範囲・min_df のチューニング
 
 ## 6. ファイル構成
 ```
@@ -91,10 +105,12 @@ signate_2026/
 ├── notebooks/
 │   ├── features.ipynb     # 初期探索
 │   ├── baseline.py        # ベースライン（OOF F1 0.6379）
-│   └── feature_eng.py     # 特徴量エンジニアリング（OOF F1 0.6635）
+│   ├── feature_eng.py     # 特徴量エンジニアリング（OOF F1 0.6635, import可能）
+│   └── tfidf_model.py     # TF-IDF追加（OOF F1 0.7168）
 ├── submission/
 │   ├── baseline_submission.csv
-│   └── feature_eng_submission.csv
+│   ├── feature_eng_submission.csv
+│   └── tfidf_submission.csv
 └── docs/
     └── progress.md        # 本ドキュメント
 ```

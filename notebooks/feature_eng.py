@@ -131,58 +131,58 @@ if __name__ == "__main__":
 
     feature_cols = list(X.columns)
 
-skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
-oof_pred = np.zeros(len(X))
-test_pred = np.zeros(len(X_test))
+    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
+    oof_pred = np.zeros(len(X))
+    test_pred = np.zeros(len(X_test))
 
-params = {
-    "objective": "binary",
-    "metric": "binary_logloss",
-    "learning_rate": 0.05,
-    "num_leaves": 15,
-    "min_child_samples": 10,
-    "feature_fraction": 0.8,
-    "bagging_fraction": 0.8,
-    "bagging_freq": 1,
-    "scale_pos_weight": (y == 0).sum() / (y == 1).sum(),
-    "verbosity": -1,
-    "seed": RANDOM_STATE,
-}
+    params = {
+        "objective": "binary",
+        "metric": "binary_logloss",
+        "learning_rate": 0.05,
+        "num_leaves": 15,
+        "min_child_samples": 10,
+        "feature_fraction": 0.8,
+        "bagging_fraction": 0.8,
+        "bagging_freq": 1,
+        "scale_pos_weight": (y == 0).sum() / (y == 1).sum(),
+        "verbosity": -1,
+        "seed": RANDOM_STATE,
+    }
 
-for fold, (tr_idx, va_idx) in enumerate(skf.split(X, y)):
-    X_tr, X_va = X.iloc[tr_idx], X.iloc[va_idx]
-    y_tr, y_va = y[tr_idx], y[va_idx]
+    for fold, (tr_idx, va_idx) in enumerate(skf.split(X, y)):
+        X_tr, X_va = X.iloc[tr_idx], X.iloc[va_idx]
+        y_tr, y_va = y[tr_idx], y[va_idx]
 
-    dtrain = lgb.Dataset(X_tr, label=y_tr, categorical_feature=cat_cols)
-    dvalid = lgb.Dataset(X_va, label=y_va, categorical_feature=cat_cols, reference=dtrain)
+        dtrain = lgb.Dataset(X_tr, label=y_tr, categorical_feature=cat_cols)
+        dvalid = lgb.Dataset(X_va, label=y_va, categorical_feature=cat_cols, reference=dtrain)
 
-    model = lgb.train(
-        params,
-        dtrain,
-        num_boost_round=1000,
-        valid_sets=[dvalid],
-        callbacks=[lgb.early_stopping(50, verbose=False)],
-    )
+        model = lgb.train(
+            params,
+            dtrain,
+            num_boost_round=1000,
+            valid_sets=[dvalid],
+            callbacks=[lgb.early_stopping(50, verbose=False)],
+        )
 
-    oof_pred[va_idx] = model.predict(X_va, num_iteration=model.best_iteration)
-    test_pred += model.predict(X_test, num_iteration=model.best_iteration) / skf.n_splits
+        oof_pred[va_idx] = model.predict(X_va, num_iteration=model.best_iteration)
+        test_pred += model.predict(X_test, num_iteration=model.best_iteration) / skf.n_splits
 
-    print(f"fold {fold}: best_iter={model.best_iteration}, logloss={model.best_score['valid_0']['binary_logloss']:.4f}")
+        print(f"fold {fold}: best_iter={model.best_iteration}, logloss={model.best_score['valid_0']['binary_logloss']:.4f}")
 
-best_th, best_f1 = 0.5, -1
-for th in np.arange(0.05, 0.95, 0.01):
-    f1 = f1_score(y, (oof_pred >= th).astype(int))
-    if f1 > best_f1:
-        best_f1, best_th = f1, th
+    best_th, best_f1 = 0.5, -1
+    for th in np.arange(0.05, 0.95, 0.01):
+        f1 = f1_score(y, (oof_pred >= th).astype(int))
+        if f1 > best_f1:
+            best_f1, best_th = f1, th
 
-print(f"\nOOF best F1={best_f1:.4f} at threshold={best_th:.2f}  (baseline was 0.6379 @ 0.28)")
+    print(f"\nOOF best F1={best_f1:.4f} at threshold={best_th:.2f}  (baseline was 0.6379 @ 0.28)")
 
-final_pred = (test_pred >= best_th).astype(int)
-submission = pd.DataFrame({0: test_ids, 1: final_pred})
-submission.to_csv("../submission/feature_eng_submission.csv", index=False, header=False)
-print("saved submission/feature_eng_submission.csv")
-print(submission[1].value_counts())
+    final_pred = (test_pred >= best_th).astype(int)
+    submission = pd.DataFrame({0: test_ids, 1: final_pred})
+    submission.to_csv("../submission/feature_eng_submission.csv", index=False, header=False)
+    print("saved submission/feature_eng_submission.csv")
+    print(submission[1].value_counts())
 
-importance = pd.Series(model.feature_importance(importance_type="gain"), index=feature_cols).sort_values(ascending=False)
-print("\nTop 20 feature importances (last fold model, gain):")
-print(importance.head(20))
+    importance = pd.Series(model.feature_importance(importance_type="gain"), index=feature_cols).sort_values(ascending=False)
+    print("\nTop 20 feature importances (last fold model, gain):")
+    print(importance.head(20))
