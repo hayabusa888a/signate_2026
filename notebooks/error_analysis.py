@@ -8,9 +8,11 @@ sys.stdout.reconfigure(encoding="utf-8")
 pd.set_option("display.unicode.east_asian_width", True)
 pd.set_option("display.width", 200)
 
+ver = sys.argv[1] if len(sys.argv) > 1 else "v3"
 train = pd.read_csv("../data/train.csv")
-oof = pd.read_csv("../features/oof_pred_v2.csv")
+oof = pd.read_csv(f"../features/oof_pred_{ver}.csv")
 th = float(oof["threshold"].iloc[0])
+print(f"[version={ver}]")
 
 df = train.merge(oof[["企業ID", "oof_pred", "y"]], on="企業ID", how="inner")
 df["pred"] = (df["oof_pred"] >= th).astype(int)
@@ -78,5 +80,5 @@ print("\n-- 完全に見逃したFN（買うのに低確率） top8 --")
 print(df[df["区分"] == "FN"].nsmallest(8, "oof_pred")[cols_show].round(3).to_string(index=False))
 
 df[["企業ID", "業界", "上場種別", "y", "pred", "oof_pred", "区分"]].to_csv(
-    "../features/error_analysis.csv", index=False, encoding="utf-8-sig")
-print("\nsaved features/error_analysis.csv")
+    f"../features/error_analysis_{ver}.csv", index=False, encoding="utf-8-sig")
+print(f"\nsaved features/error_analysis_{ver}.csv")
